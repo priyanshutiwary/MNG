@@ -1,11 +1,10 @@
-
-
 import express from "express";
 import pg from "pg";
 import env from "dotenv";
 import bodyParser from "body-parser"
 import cors from 'cors';
 import bcrypt from 'bcrypt'
+import jsonwebtoken from 'jsonwebtoken'
 // const bcrypt = require('bcrypt'); // Assuming you're using bcrypt for password hashing
 
 const app = express();
@@ -13,15 +12,20 @@ const app = express();
 const port = process.env.PORT || 5001;
 
 app.use(bodyParser.urlencoded({ extended: true}));
-
+env.config();
 
 // Replace with your actual database credentials (avoid storing them in plain text)
 const dbConfig = {
-  user: "postgres",
-  host: "localhost",
-  database: "MNG",
-  password: "one trillion",
-  port: 5433,
+//     user: "postgres",
+//   host: "localhost",
+//   database: "MNG",
+//   password: "one trillion",
+//   port: 5433,
+  user: process.env.PG_USER,
+  host: process.env.PG_HOST,
+  database: process.env.PG_DATABASE,
+  password: process.env.PG_PASSWORD,
+  port: process.env.PG_PORT,
 };
 
 const db = new pg.Client(dbConfig);
@@ -35,7 +39,10 @@ db.connect((err) => {
     console.log('Database connected successfully');
   }
 });
-
+app.use(cors({
+    origin: "*", // Replace with specific allowed origins or use whitelist approach
+    credentials: true // Enable cookies for proper authentication handling
+  }));
 app.use(express.json()); // Parse JSON request bodies
 
 
@@ -44,49 +51,82 @@ app.get('/api/data',(req,res) =>{
 })
 
 
+// **Register endpoint**
 app.post("/api/register", async (req, res) => {
-    
-    const {name,username,email, password} =req.body
+
+    const { name, username, email, password } = req.body;
   
     try {
+      // Check for existing email
       const checkResult = await db.query("SELECT * FROM users WHERE email = $1", [
-        email
+        email,
       ]);
   
       if (checkResult.rows.length > 0) {
-        res.send("Email already exists. Try logging in.");
-        console.log('success');
-      } else {
-        //hashing the password and saving it in the database
-        console.log("entered else statement");
-        await db.query(
-            "INSERT INTO users (email, password,username,name) VALUES ($1, $2, $3, $4)",
-            [email,password,username,name]
-            
-          );
-          console.log("registerd")
-        // bcrypt.hash(password, saltRounds, async (err, hash) => {
-        //   if (err) {
-        //     console.log("entered hash if");
-        //     console.error("Error hashing password:", err);
-
-        //   } else {
-        //     console.log("enterd");
-        //     console.log("Hashed Password:", hash);
-        //     await db.query(
-        //       "INSERT INTO users (email, password,username,name) VALUES ($1, $2, $3, $4)",
-        //       [email,hash,username,name]
-        //     );
-        //     console.log(registered)
-        //   }
-        //   console.log("exited has ");
-        // });
-        res.json({ success: true});//
+        return res.status(400).json({ message: "Email already exists" });
       }
+  
+      // Hash the password securely before storing
+      const hashedPassword = await bcrypt.hash(password, saltRounds);
+      console.log(hashedPassword)
+      // Insert user into database
+      await db.query(
+        "INSERT INTO users (email, password,username,name) VALUES ($1, $2, $3, $4)",
+              [email,hashedPassword,username,name]
+      );
+      console.log("data inserted")
+  
+      res.status(200).json({ success: true, message: "Registration successful" });
     } catch (err) {
-      console.log(err);
+      console.error(err);
+      res.status(500).json({ message: "Internal server error" });
     }
   });
+  
+
+
+
+    
+
+
+
+// app.post("/api/login", async (req, res) => {
+//     const { email, password } = req.body;
+  
+//     try {
+//       // Find user by email
+//       const result = await db.query("SELECT * FROM users WHERE email = $1", [
+//         email,
+//       ]);
+      
+  
+//       if (result.rows.length === 0) {
+//         return res.status(401).json({ message: "Invalid credentials" });
+//       }
+  
+//       const user = result.rows[0];
+  
+//       // Compare password hashes securely
+//       const isPasswordValid = await bcrypt.compare(password, user.password);
+  
+//       if (!isPasswordValid) {
+//         return res.status(401).json({ message: "Invalid credentials" });
+//       }
+  
+//       // Generate and send a secure JSON Web Token (JWT)
+//       const token = generateJwtToken({ id: user.id, email: user.email, username: user.username });
+      
+//       res.status(200).json({ success: true, message:"success"});   
+//      } catch (err) {
+//       console.error(err);
+//       res.status(500).json({ message: "Internal server error" });
+//     }
+//   });
+  
+
+
+
+
   
   app.post("/api/login", async (req, res) => {
     const {email, password}= req.body
@@ -95,29 +135,21 @@ app.post("/api/register", async (req, res) => {
       const result = await db.query("SELECT * FROM users WHERE email = $1", [
         email,
       ]);
-      
-      if (result.rows.length > 0 && password===result.rows[0].password) {
-        // const user = result.rows[0].password;
+      const user =result.rows[0]
+      console.log("Reached flag1 ");
+      if (result.rows.length > 0 ) {//&& password===await bcrypt.compare(password, user.password)
+        // const userData = result.rows[0];
         
         // const pass = result.rows[0].password
         // console.log(pass);
-        const username =result.rows[0].username;
-        const name = result.rows[0].name;
-        res.status(200).json({success: true,username:{username},name:{name},email:{email}})
+        console.log(('reachef flag2'))
+        // const username =result.rows[0].username;
+        // const name = result.rows[0].name;
+        const token = generateJwtToken({ id: user.id, email: user.email, username: user.username });
         
-        // const storedHashedPassword = user.password;
-        // //verifying the password
-        // bcrypt.compare(loginPassword, storedHashedPassword, (err, result) => {
-        //   if (err) {
-        //     console.error("Error comparing passwords:", err);
-        //   } else {
-        //     if (result) {
-        //       res.render("secrets.ejs");
-        //     } else {
-        //       res.send("Incorrect Password");
-        //     }
-        //   }
-        // });
+        res.status(200).json({ success: true,token});
+        
+        
         
       } else {
         res.status(404).json({message:'User not found'});
@@ -135,51 +167,20 @@ app.post("/api/register", async (req, res) => {
 
 
 
-// app.post('/api/login', async (req, res) => {
-//   console.log("reached")
-  
-//   try{
-//     const { email, password } = req.body
-//     const result = await db.query('SELECT * FROM users WHERE email = $1', [email]);
-//     if (result.rows.length > 0){
-//     const user = result.rows[0];
-//     const pass = user.password;
-    
-//     }else{
-//             res.status(401).json({ error: 'Invalid credentials' });
-//           }
-    
 
-
-//   }catch{
-//        console.error('Login error:', error);
-//     res.status(500).json({ error: 'Internal server error' }); 
-
-//   }
-
-  
-  // try {
-  //   const { email, password } = req.body;
-
-  //   // Retrieve user information from the database based on email
-  //   const user = await db.query('SELECT * FROM users WHERE email = $1', [email]);
-
-  //   // Check if user exists and passwords match
-  //   if (user.rows.length > 0 && await bcrypt.compare(password, user.rows[0].password)) {
-  //     // Authentication successful
-  //     // Generate token (replace with your token generation logic)
-  //     // const token = /* generate token */;
-
-  //     res.json("true");//{ success: true, token }
-  //   } else {
-  //     res.status(401).json({ error: 'Invalid credentials' });
-  //   }
-  // } catch (error) {
-  //   console.error('Login error:', error);
-  //   res.status(500).json({ error: 'Internal server error' }); // Change to a more specific error message if possible
-  // }
-// });
 
 app.listen(port, () => {
   console.log(`Server started at port ${port}`);
 });
+
+
+
+function generateJwtToken(userData) {
+    // Implement token generation using jsonwebtoken library
+    // Consider using environment variables for secret key and expiration time
+    const secretKey = process.env.JWT_SECRET; // Store secret key securely
+    const expiresIn = "1h"; // Adjust expiration time as needed
+  
+    return jsonwebtoken.sign(userData, secretKey)
+
+}
